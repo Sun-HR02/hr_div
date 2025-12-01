@@ -49,18 +49,17 @@ bash ./eval_time.sh
 
 ## References: 
 The code is implemented based on [lmms-eval](https://github.com/EvolvingLMMs-Lab/lmms-eval), [LLaVA](https://github.com/haotian-liu/LLaVA) and [FASTV](https://github.com/pkunlp-icler/FastV). 
-We thanks the contributors for their great work!
+We thank the contributors for their great work!
 
 ## Citation 
 If this code is useful, please cite it in your documents.
-```@misc{alvar2025divprunediversitybasedvisualtoken,
-      title={DivPrune: Diversity-based Visual Token Pruning for Large Multimodal Models}, 
-      author={Saeed Ranjbar Alvar and Gursimran Singh and Mohammad Akbari and Yong Zhang},
-      year={2025},
-      eprint={2503.02175},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2503.02175}, 
+```
+@inproceedings{alvar2025divprune,
+  title={Divprune: Diversity-based visual token pruning for large multimodal models},
+  author={Alvar, Saeed Ranjbar and Singh, Gursimran and Akbari, Mohammad and Zhang, Yong},
+  booktitle={Proceedings of the Computer Vision and Pattern Recognition Conference},
+  pages={9392--9401},
+  year={2025}
 }
 ```
 Shield: [![CC BY-NC 4.0][cc-by-nc-shield]][cc-by-nc]
