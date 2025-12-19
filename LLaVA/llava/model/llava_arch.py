@@ -281,7 +281,8 @@ class LlavaMetaForCausalLM(ABC):
             return input_ids, position_ids, attention_mask, past_key_values, None, labels
 
         # 判断是否需要获取注意力（在DivPrune场景下）
-        need_attentions = 'LAYER_INDEX' in os.environ and os.environ['LAYER_INDEX']=='0'
+        # need_attentions = 'LAYER_INDEX' in os.environ and os.environ['LAYER_INDEX']=='0'
+        need_attentions = True
         
         if type(images) is list or images.ndim == 5:
             if type(images) is list:
