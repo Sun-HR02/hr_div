@@ -300,16 +300,21 @@ class CLIPVisionTower(nn.Module):
         return image_features
 
     @torch.no_grad()
-    def forward(self, images):
+    def forward(self, images, output_attentions=False):
+        # 用于存储最后一层的注意力权重
+        self.last_attentions = None
+        
         if type(images) is list:
             image_features = []
             for image in images:
-                image_forward_out = self.vision_tower(image.to(device=self.device, dtype=self.dtype).unsqueeze(0), output_hidden_states=True)
+                image_forward_out = self.vision_tower(image.to(device=self.device, dtype=self.dtype).unsqueeze(0), output_hidden_states=True, output_attentions=output_attentions)
                 image_feature = self.feature_select(image_forward_out).to(image.dtype)
                 image_features.append(image_feature)
+                if output_attentions and hasattr(image_forward_out, 'attentions') and image_forward_out.attentions is not None:
+                    self.last_attentions = image_forward_out.attentions
         else:
 
-            if os.environ['BASELINE'] == 'PRUMERGE':
+            if os.environ.get('BASELINE', '') == 'PRUMERGE':
                 if 'NOT_ADAPTIVE' in os.environ:
                     if_adaptive=False
                     reduction_ratio = float(os.environ['NOT_ADAPTIVE'])
@@ -331,8 +336,10 @@ class CLIPVisionTower(nn.Module):
                 os.environ['reduction_ratio'] += f',{str(reduction_ratio)}'
 
             else:
-                image_forward_outs = self.vision_tower(images.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
+                image_forward_outs = self.vision_tower(images.to(device=self.device, dtype=self.dtype), output_hidden_states=True, output_attentions=output_attentions)
                 image_features = self.feature_select(image_forward_outs).to(images.dtype)
+                if output_attentions and hasattr(image_forward_outs, 'attentions') and image_forward_outs.attentions is not None:
+                    self.last_attentions = image_forward_outs.attentions
 
         return image_features
 

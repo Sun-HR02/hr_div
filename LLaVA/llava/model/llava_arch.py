@@ -138,9 +138,20 @@ class LlavaMetaForCausalLM(ABC):
     def get_vision_tower(self):
         return self.get_model().get_vision_tower()
 
-    def encode_images(self, images):
-        image_features = self.get_model().get_vision_tower()(images)
+    def encode_images(self, images, return_attentions=False):
+        vision_tower = self.get_model().get_vision_tower()
+        # 如果需要返回注意力，则在调用vision tower时设置output_attentions=True
+        image_features = vision_tower(images, output_attentions=return_attentions)
+        
+        # 获取最后一层注意力权重（如果vision tower支持）
+        attentions = None
+        if return_attentions and hasattr(vision_tower, 'last_attentions'):
+            attentions = vision_tower.last_attentions
+        
         image_features = self.get_model().mm_projector(image_features)
+        
+        if return_attentions:
+            return image_features, attentions
         return image_features
 
     # divprune
@@ -149,12 +160,84 @@ class LlavaMetaForCausalLM(ABC):
         cosine_similarity = torch.mm(norm_matrix, norm_matrix.t())
         return cosine_similarity
 
-    def DivPrune(self, visual_feature_vectors, image_feature_length, cosine_matrix=None, threshold_ratio=0.1):            
+    def DivPrune(self, visual_feature_vectors, image_feature_length, cosine_matrix=None, threshold_ratio=0.1, attentions=None):            
         threshold_terms = int(round(threshold_ratio*image_feature_length))
+        # TODO: 剪枝实现
+        
+        # 自定义的参数
+        anchor_nums = min(50, threshold_terms)
+        save_nums = max(threshold_terms - anchor_nums, 0) # 防止负数
+        alpha = 0.5  # 可调整的权重参数
+
+        # 两两计算多样性得分，后面取出锚点对应的部分
         if cosine_matrix is None:
             cosine_matrix = 1.0 - (self.pairwise_cosine_similarity(visual_feature_vectors))
+        
+        # 如果提供了注意力权重，可以将其融入到选择逻辑中
+        # attentions shape: [batch, num_heads, seq_len, seq_len]
+        # 这里我们使用最后一层的CLS token对其他token的注意力作为重要性权重
+        attention_weights = None
+        if attentions is not None:
+            # 取最后一层，所有head的平均，CLS token (index 0) 对其他token的注意力
+            # attentions[-1]: [batch, num_heads, seq_len, seq_len]
+            last_layer_attn = attentions[-1]  # 最后一层
+            cls_attn = last_layer_attn[:, :, 0, 1:]  # [batch, num_heads, seq_len-1] (排除CLS自己) # 其他token与CLS的注意力
+            attention_weights = cls_attn.mean(dim=1).squeeze(0)  # [seq_len-1] 平均所有head
 
         s = torch.empty(threshold_terms, dtype=torch.long, device=visual_feature_vectors.device)
+        anchors = torch.empty(anchor_nums, dtype=torch.long, device=visual_feature_vectors.device)
+
+        # 预先计算锚点和评分（如果使用注意力）
+        anchor_indices = None
+        importance_scores = None
+        diversity_scores = None
+        final_scores = None
+        
+        if attention_weights is not None:
+            # 步骤1: 根据CLS的注意力选取anchor_nums个锚点token
+            # A_coarse = Softmax(x_cls * W_Q * (X * W_K)^T / sqrt(d))
+            _, anchor_indices = torch.topk(attention_weights, anchor_nums, largest=True)
+            anchors[:] = anchor_indices
+            
+            # 步骤2: 利用与锚点的注意力判断每个token的重要性
+            # I_i = (1/|S_anchor|) * sum(Attn(x_i, x_j)) for x_j in S_anchor
+            if attentions is not None and len(attentions) > 0:
+                # 取最后一层的注意力，平均所有head
+                last_layer_attn = attentions[-1]  # [batch, num_heads, seq_len, seq_len]
+                avg_attn = last_layer_attn.mean(dim=1).squeeze(0)  # [seq_len, seq_len]
+                
+                # 提取所有token与锚点token的注意力 (排除CLS token，所以索引+1)
+                anchor_attn = avg_attn[1:, anchor_indices + 1]  # [seq_len-1, anchor_nums] # 
+                importance_scores = anchor_attn.mean(dim=1)  # [seq_len-1] 平均与所有锚点的注意力
+            else:
+                # 如果没有完整的注意力矩阵，使用CLS注意力作为重要性
+                importance_scores = attention_weights # TODO: 取的注意力和CLS注意力维度一样吗
+            
+            # 步骤3: 利用与锚点的相似度判断每个token的多样性
+            # Sim(x_i, S_anchor) = max_{x_j in S_anchor}(x_i · x_j / (|x_i|_2 * |x_j|_2))
+            # D_i = 1 - Sim(x_i, S_anchor)
+            anchor_features = visual_feature_vectors[anchor_indices]  # [anchor_nums, feature_dim]
+            
+            # 计算所有token与锚点的余弦相似度， TODO：为啥要归一化
+            norm_features = visual_feature_vectors / visual_feature_vectors.norm(dim=1, keepdim=True)
+            norm_anchors = anchor_features / anchor_features.norm(dim=1, keepdim=True)
+            similarity_matrix = torch.mm(norm_features, norm_anchors.t())  # [num_tokens, anchor_nums]
+            
+            # 取与锚点的最大相似度
+            max_similarity, _ = similarity_matrix.max(dim=1)  # [num_tokens]
+            diversity_scores = 1.0 - max_similarity  # [num_tokens]
+            
+            # 步骤4: 计算最终评分
+            # S_i = α * I_i + (1-α) * D_i
+            
+            # 归一化重要性和多样性分数到[0,1]
+            importance_norm = (importance_scores - importance_scores.min()) / (importance_scores.max() - importance_scores.min() + 1e-8)
+            diversity_norm = (diversity_scores - diversity_scores.min()) / (diversity_scores.max() - diversity_scores.min() + 1e-8)
+            
+            # 计算最终分数
+            final_scores = alpha * importance_norm + (1.0 - alpha) * diversity_norm
+
+        # 计算所有token间的多样性，每次迭代选择一个token
         for i in range(threshold_terms):
             if i==0:
                 m2 = cosine_matrix
@@ -166,8 +249,27 @@ class LlavaMetaForCausalLM(ABC):
             else:
                 scores = torch.min(m2, dim=0).values #for distance 
 
-            phrase_to_add_idx = torch.argmax(scores)
+            # 自定义的剪枝逻辑：每次迭代选择一个token
+            if attention_weights is not None and final_scores is not None:
+                # 前anchor_nums个位置选择锚点
+                if i < anchor_nums:
+                    phrase_to_add_idx = anchor_indices[i]
+                else:
+                    # 后续位置根据最终评分选择
+                    # 创建mask排除已选的token
+                    mask = torch.ones(visual_feature_vectors.shape[0], dtype=torch.bool, device=visual_feature_vectors.device)
+                    mask[s[:i]] = False  # 排除已选择的token
+                    
+                    # 从未选择的token中选择得分最高的
+                    candidate_scores = final_scores.clone()
+                    candidate_scores[~mask] = -float('inf')
+                    phrase_to_add_idx = torch.argmax(candidate_scores)
+            else:
+                # 原始逻辑
+                phrase_to_add_idx = torch.argmax(scores)
+            
             s[i] = phrase_to_add_idx
+        
         return s, cosine_matrix
 
     def prepare_inputs_labels_for_multimodal(
@@ -178,11 +280,20 @@ class LlavaMetaForCausalLM(ABC):
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
             return input_ids, position_ids, attention_mask, past_key_values, None, labels
 
+        # 判断是否需要获取注意力（在DivPrune场景下）
+        need_attentions = 'LAYER_INDEX' in os.environ and os.environ['LAYER_INDEX']=='0'
+        
         if type(images) is list or images.ndim == 5:
             if type(images) is list:
                 images = [x.unsqueeze(0) if x.ndim == 3 else x for x in images]
             concat_images = torch.cat([image for image in images], dim=0)
-            image_features = self.encode_images(concat_images)
+            
+            if need_attentions:
+                image_features, attentions = self.encode_images(concat_images, return_attentions=True)
+            else:
+                image_features = self.encode_images(concat_images)
+                attentions = None
+            # encode完了
             split_sizes = [image.shape[0] for image in images]
             image_features = torch.split(image_features, split_sizes, dim=0)
             mm_patch_merge_type = getattr(self.config, 'mm_patch_merge_type', 'flat')
@@ -227,9 +338,13 @@ class LlavaMetaForCausalLM(ABC):
             else:
                 raise ValueError(f"Unexpected mm_patch_merge_type: {self.config.mm_patch_merge_type}")
         else:
-            image_features = self.encode_images(images)
+            if need_attentions:
+                image_features, attentions = self.encode_images(images, return_attentions=True)
+            else:
+                image_features = self.encode_images(images)
+                attentions = None
 
-        # TODO: image start / end is not implemented here to support pretraining.
+        #  image start / end is not implemented here to support pretraining.
         if getattr(self.config, 'tune_mm_mlp_adapter', False) and getattr(self.config, 'mm_use_im_start_end', False):
             raise NotImplementedError
 
@@ -370,9 +485,9 @@ class LlavaMetaForCausalLM(ABC):
                 img_feature_len = image_features[0].shape[0] #example is 2340x4096
             else: #for LLaVa 1.5
                 img_feature_len = image_features.shape[1] #example is 2340x4096
-
+            # TODO： 剪枝触发
             visual_tokens =new_input_embeds[0][SYS_TOKEN_LEN:SYS_TOKEN_LEN+img_feature_len]
-            selected_visual_tokens, cosine_matrix = self.DivPrune(visual_tokens, img_feature_len,cosine_matrix,threshold_ratio=diverse_ratio)
+            selected_visual_tokens, cosine_matrix = self.DivPrune(visual_tokens, img_feature_len, cosine_matrix, threshold_ratio=diverse_ratio, attentions=attentions)
                       
             selected_visual_tokens += SYS_TOKEN_LEN
             keep_indexs = torch.cat((torch.arange(SYS_TOKEN_LEN,device=new_input_embeds.device), selected_visual_tokens, torch.arange(SYS_TOKEN_LEN+img_feature_len,new_input_embeds.shape[1],device=new_input_embeds.device)))
