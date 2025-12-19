@@ -173,7 +173,6 @@ class LlavaMetaForCausalLM(ABC):
         if cosine_matrix is None:
             cosine_matrix = 1.0 - (self.pairwise_cosine_similarity(visual_feature_vectors))
         
-        import ipdb;ipdb.set_trace()
         # 如果提供了注意力权重，可以将其融入到选择逻辑中
         # attentions shape: [batch, num_heads, seq_len, seq_len]
         # 这里我们使用最后一层的CLS token对其他token的注意力作为重要性权重
@@ -283,7 +282,7 @@ class LlavaMetaForCausalLM(ABC):
 
         # 判断是否需要获取注意力（在DivPrune场景下）
         # need_attentions = 'LAYER_INDEX' in os.environ and os.environ['LAYER_INDEX']=='0'
-        need_attentions = True
+        need_attentions = True # 开关
 
         if type(images) is list or images.ndim == 5:
             if type(images) is list:
