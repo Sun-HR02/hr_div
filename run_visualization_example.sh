@@ -6,7 +6,7 @@
 # 设置参数
 IMAGE_PATH="prune_example.PNG"  # 修改为你的图片路径
 MODEL_PATH="liuhaotian/llava-v1.5-13b"  # 或者使用 llava-v1.5-13b, llava-v1.6-vicuna-7b
-PRUNE_RATIO=0.098  # 剪枝比例，论文中默认为0.098
+PRUNE_RATIO=0.5  # 剪枝比例，论文中默认为0.098
 OUTPUT_DIR="./prune_comparison_results"  # 输出目录
 PROMPT="Describe this image in detail."  # 可选：自定义提示词
 
