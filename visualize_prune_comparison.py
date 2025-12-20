@@ -186,6 +186,116 @@ class PruneComparator:
             if 'SUBSET_RATIO' in os.environ:
                 del os.environ['SUBSET_RATIO']
     
+    def visualize_image_with_pruning(self, original_image, original_data, pruned_data, output_path):
+        """可视化原图和剪枝后的对比（左边原图，右边剪枝可视化）"""
+        num_tokens = original_data['num_tokens']
+        selected_indices = pruned_data['selected_indices'].numpy()
+        num_selected = pruned_data['num_selected']
+        
+        # 计算grid大小 (假设是方形)
+        grid_size = int(np.sqrt(num_tokens))
+        
+        # 创建mask
+        mask = np.zeros(num_tokens)
+        mask[selected_indices] = 1
+        mask = mask.reshape(grid_size, grid_size)
+        
+        # 创建图形
+        fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+        
+        # 左图：原始图片
+        axes[0].imshow(original_image)
+        axes[0].set_title(f'Original Image\nTotal Tokens: {num_tokens}', 
+                         fontsize=14, fontweight='bold')
+        axes[0].axis('off')
+        
+        # 右图：剪枝后的token可视化
+        # 使用更清晰的颜色：绿色=保留，红色=剪枝
+        im = axes[1].imshow(mask, cmap='RdYlGn', vmin=0, vmax=1, interpolation='nearest')
+        axes[1].set_title(f'After Pruning (Green=Kept, Red=Pruned)\n'
+                         f'Kept Tokens: {num_selected} / {num_tokens} '
+                         f'({num_selected/num_tokens*100:.1f}%)',
+                         fontsize=14, fontweight='bold')
+        axes[1].axis('off')
+        
+        # 添加颜色条
+        cbar = plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
+        cbar.set_ticks([0, 1])
+        cbar.set_ticklabels(['Pruned', 'Kept'])
+        
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Image comparison saved to: {output_path}")
+    
+    def visualize_overlay_pruning(self, original_image, original_data, pruned_data, output_path):
+        """将剪枝mask半透明叠加在原图上（左边原图，右边叠加效果）"""
+        num_tokens = original_data['num_tokens']
+        selected_indices = pruned_data['selected_indices'].numpy()
+        num_selected = pruned_data['num_selected']
+        
+        # 计算grid大小 (假设是方形)
+        grid_size = int(np.sqrt(num_tokens))
+        
+        # 创建mask
+        mask = np.zeros(num_tokens)
+        mask[selected_indices] = 1
+        mask = mask.reshape(grid_size, grid_size)
+        
+        # 将mask调整到原图大小
+        img_array = np.array(original_image)
+        h, w = img_array.shape[:2]
+        
+        # 使用最近邻插值将mask放大到原图大小
+        from scipy.ndimage import zoom
+        zoom_factor_h = h / grid_size
+        zoom_factor_w = w / grid_size
+        mask_resized = zoom(mask, (zoom_factor_h, zoom_factor_w), order=0)  # order=0表示最近邻插值
+        
+        # 创建彩色mask：绿色表示保留，红色表示剪枝
+        color_mask = np.zeros((h, w, 4))  # RGBA
+        
+        # 保留的区域：绿色半透明
+        kept_mask = mask_resized == 1
+        color_mask[kept_mask] = [0, 1, 0, 0.3]  # 绿色，透明度0.3
+        
+        # 剪枝的区域：红色半透明
+        pruned_mask = mask_resized == 0
+        color_mask[pruned_mask] = [1, 0, 0, 0.5]  # 红色，透明度0.5（更明显）
+        
+        # 创建图形
+        fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+        
+        # 左图：原始图片
+        axes[0].imshow(original_image)
+        axes[0].set_title(f'Original Image\nTotal Tokens: {num_tokens}', 
+                         fontsize=14, fontweight='bold')
+        axes[0].axis('off')
+        
+        # 右图：叠加效果
+        axes[1].imshow(original_image)
+        axes[1].imshow(color_mask)
+        axes[1].set_title(f'Pruning Overlay (Green=Kept, Red=Pruned)\n'
+                         f'Kept Tokens: {num_selected} / {num_tokens} '
+                         f'({num_selected/num_tokens*100:.1f}%)',
+                         fontsize=14, fontweight='bold')
+        axes[1].axis('off')
+        
+        # 添加图例
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor='green', alpha=0.3, label='Kept Tokens'),
+            Patch(facecolor='red', alpha=0.5, label='Pruned Tokens')
+        ]
+        axes[1].legend(handles=legend_elements, loc='upper right', fontsize=10)
+        
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Overlay visualization saved to: {output_path}")
+    
     def visualize_token_selection(self, original_data, pruned_data, output_path):
         """可视化token选择结果"""
         num_tokens = original_data['num_tokens']
@@ -363,6 +473,19 @@ class PruneComparator:
         
         # 生成可视化
         print("\nGenerating visualizations...")
+        
+        # 原图和剪枝后的对比图（网格）
+        self.visualize_image_with_pruning(
+            original_image, original_data, pruned_data,
+            output_dir / "image_pruning_comparison.png"
+        )
+        
+        # 新增：叠加可视化（mask覆盖在原图上）
+        self.visualize_overlay_pruning(
+            original_image, original_data, pruned_data,
+            output_dir / "image_pruning_overlay.png"
+        )
+        
         self.visualize_token_selection(
             original_data, pruned_data,
             output_dir / "token_selection.png"
@@ -387,6 +510,8 @@ class PruneComparator:
         print(f"\n✓ All results saved to: {output_dir}")
         print("\nGenerated files:")
         print(f"  - original_image.jpg: 原始图片")
+        print(f"  - image_pruning_comparison.png: 原图与剪枝对比（左原图，右剪枝网格）")
+        print(f"  - image_pruning_overlay.png: 剪枝叠加可视化（mask覆盖在原图上）⭐")
         print(f"  - token_selection.png: token选择可视化")
         print(f"  - attention_comparison.png: 注意力对比")
         print(f"  - feature_similarity.png: 特征相似度矩阵")
