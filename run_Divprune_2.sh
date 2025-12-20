@@ -2,8 +2,8 @@
 
 set -x
 
-# PAPER_TABLE=pope,scienceqa_img,seedbench,mmmu_val
-PAPER_TABLE=ok_vqa_val2014
+# PAPER_TABLE=,scienceqa_img,seedbench,mmmu_val
+PAPER_TABLE=pope
 
 LOG_DIR=./logs_final
 RUN_NAME=divprune_llava_1.5_7b
