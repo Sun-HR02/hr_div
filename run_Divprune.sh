@@ -2,7 +2,7 @@
 
 set -x
 
-PAPER_TABLE=flickr30k_test,gqa,mmbench_en_dev,mme,mmmu_val,nocaps_val,ok_vqa_val2014,pope,scienceqa_img,seedbench
+PAPER_TABLE=flickr30k_test,gqa,mmbench_en_dev,mme,mmmu_val,nocaps_val,ok_vqa_val2014,pope,scienceqa_img
 # PAPER_TABLE=coco2017_cap_val
 
 LOG_DIR=./logs_final
