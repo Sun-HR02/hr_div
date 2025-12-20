@@ -86,10 +86,10 @@ def llava_tflops(model_name='llava_1.5', model_size='7b', data_type = 'image'):
 
 if __name__ == "__main__":
     print("=== LLaVA 1.5 7b - image understanding ===")
-    llava_tflops(model_name='llava_1.5', model_size='7b', data_type = 'image')
+    # llava_tflops(model_name='llava_1.5', model_size='7b', data_type = 'image')
     print("=== LLaVA 1.5 13b - image understanding ===")
     llava_tflops(model_name='llava_1.5', model_size='13b', data_type = 'image')
     print("=== LLaVA 1.6 7b - image understanding ===")
-    llava_tflops(model_name='llava_1.6', model_size='7b', data_type = 'image')
+    # llava_tflops(model_name='llava_1.6', model_size='7b', data_type = 'image')
     print("=== LLaVA 1.6 7b video understanding ===")
-    llava_tflops(model_name='llava_1.6', model_size='7b', data_type = 'video')
+    # llava_tflops(model_name='llava_1.6', model_size='7b', data_type = 'video')
