@@ -21,7 +21,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 BASELINE=ORIG EVAL_TIME=TRUE python3 -m accelerate.
     --num_processes=4 \
     -m lmms_eval \
     --model llava \
-    --model_args pretrained="liuhaotian/llava-v13b" \
+    --model_args pretrained="liuhaotian/llava-v1.5-13b" \
     --tasks $PAPER_TABLE \
     --batch_size 1 \
     --log_samples \
